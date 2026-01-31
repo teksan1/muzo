@@ -400,7 +400,7 @@ class APITester:
                               f"Tracks: {total_tracks}, Playlists: {total_playlists}, Keys: {len(key_dist)}")
                 
                 if bpm_stats:
-                    print(f"   BPM range: {bmp_stats.get('min_bpm', 'N/A')} - {bpm_stats.get('max_bpm', 'N/A')}")
+                    print(f"   BPM range: {bpm_stats.get('min_bpm', 'N/A')} - {bpm_stats.get('max_bpm', 'N/A')}")
                     
             else:
                 self.log_result("Library statistics", False, f"Status: {response.status_code}", response)
