@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Persistence file
-DATA_FILE = "/home/ubuntu/muzo/memory/data.json"
+DATA_FILE = os.environ.get("DATA_FILE", "/home/ubuntu/muzo/memory/data.json")
 os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
 
 # In-memory storage
