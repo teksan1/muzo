@@ -124,6 +124,23 @@ export default function AnalyzeScreen() {
     }
   };
 
+  const handleAnalyze = async () => {
+    if (selectedFiles.length === 0) {
+      Alert.alert('Error', 'Please select audio files first');
+      return;
+    }
+
+    if (selectedFiles.length > 1) {
+      await performBatchClientAnalysis();
+    } else {
+      if (analysisMethod === 'ai') {
+        await analyzeWithAI();
+      } else {
+        simulateClientAnalysis();
+      }
+    }
+  };
+
   const analyzeWithAI = async () => {
     if (selectedFiles.length === 0) {
       Alert.alert('Error', 'Please select an audio file first');
@@ -133,10 +150,9 @@ export default function AnalyzeScreen() {
     setAnalyzing(true);
     try {
       // Simulate client-side audio analysis features
-      // In a real app, you'd use Web Audio API or native audio processing
       const audioFeatures = {
-        frequency_peaks: [440, 523, 659, 784, 880], // A4, C5, E5, G5, A5 (simulated)
-        beat_intervals: [500, 502, 498, 501, 499], // ~120 BPM (simulated)
+        frequency_peaks: [440, 523, 659, 784, 880],
+        beat_intervals: [500, 502, 498, 501, 499],
         avg_amplitude: 0.65,
         peak_amplitude: 0.92,
         spectral_centroid: 2500,
@@ -400,14 +416,7 @@ export default function AnalyzeScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.methodButton, analysisMethod === 'client' && styles.methodButtonActive]}
-            onPress={() => {
-              setAnalysisMethod('client');
-              if (selectedFiles.length > 1) {
-                performBatchClientAnalysis();
-              } else if (selectedFiles.length === 1) {
-                simulateClientAnalysis();
-              }
-            }}
+            onPress={() => setAnalysisMethod('client')}
           >
             <Ionicons name="phone-portrait-outline" size={24} color={analysisMethod === 'client' ? '#A855F7' : '#6B7280'} />
             <Text style={[styles.methodText, analysisMethod === 'client' && styles.methodTextActive]}>
@@ -420,10 +429,7 @@ export default function AnalyzeScreen() {
               analysisMethod === 'ai' && styles.methodButtonActive,
               selectedFiles.length > 1 && styles.methodButtonDisabled
             ]}
-            onPress={() => {
-              setAnalysisMethod('ai');
-              if (selectedFiles.length === 1) analyzeWithAI();
-            }}
+            onPress={() => setAnalysisMethod('ai')}
             disabled={selectedFiles.length > 1}
           >
             <Ionicons name="sparkles" size={24} color={
@@ -438,10 +444,26 @@ export default function AnalyzeScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Analyze Button */}
+        <TouchableOpacity
+          style={[styles.analyzeButton, (analyzing || selectedFiles.length === 0) && styles.analyzeButtonDisabled]}
+          onPress={handleAnalyze}
+          disabled={analyzing || selectedFiles.length === 0}
+        >
+          {analyzing ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="analytics" size={24} color="#fff" />
+              <Text style={styles.analyzeButtonText}>Analyze Tracks</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
         {analyzing && (
           <View style={styles.analyzingContainer}>
             <ActivityIndicator size="large" color="#A855F7" />
-            <Text style={styles.analyzingText}>Analyzing with AI...</Text>
+            <Text style={styles.analyzingText}>Analyzing...</Text>
           </View>
         )}
 
@@ -925,6 +947,24 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   saveButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  analyzeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  analyzeButtonDisabled: {
+    opacity: 0.6,
+  },
+  analyzeButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
