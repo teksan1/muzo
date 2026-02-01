@@ -14,13 +14,13 @@ import os
 # Get backend URL from frontend .env file
 def get_backend_url():
     try:
-        with open('/app/frontend/.env', 'r') as f:
+        with open('/workspaces/muzo/frontend/.env', 'r') as f:
             for line in f:
                 if line.startswith('EXPO_PUBLIC_BACKEND_URL='):
                     return line.split('=', 1)[1].strip()
     except Exception as e:
         print(f"Error reading frontend .env: {e}")
-    return "http://localhost:8001"
+    return "http://localhost:8000"
 
 BASE_URL = get_backend_url() + "/api"
 print(f"Testing backend at: {BASE_URL}")

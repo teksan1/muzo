@@ -44,7 +44,7 @@ interface Playlist {
 }
 
 export default function AnalyzeScreen() {
-  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
   const [analysisMethod, setAnalysisMethod] = useState<'manual' | 'client' | 'ai'>('manual');
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,10 +65,18 @@ export default function AnalyzeScreen() {
   const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
   
   const [aiConfidence, setAiConfidence] = useState<number | null>(null);
+  const [batchAnalysisResults, setBatchAnalysisResults] = useState<{[filename: string]: any}>({});
 
   useEffect(() => {
     fetchPlaylists();
   }, []);
+
+  useEffect(() => {
+    // Automatically analyze files when multiple files are selected and client analysis is chosen
+    if (selectedFiles.length > 1 && analysisMethod === 'client') {
+      performBatchClientAnalysis();
+    }
+  }, [selectedFiles, analysisMethod]);
 
   const fetchPlaylists = async () => {
     try {
@@ -83,22 +91,23 @@ export default function AnalyzeScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['audio/*'],
+        multiple: true,
         copyToCacheDirectory: true,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        setSelectedFile(file);
+        setSelectedFiles(result.assets);
         
-        // Extract filename without extension as title
-        const filename = file.name;
+        // Use the first file for title
+        const firstFile = result.assets[0];
+        const filename = firstFile.name;
         const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
         setTitle(nameWithoutExt);
         
-        // Try to get duration
+        // Try to get duration from first file
         if (Platform.OS !== 'web') {
           try {
-            const { sound } = await Audio.Sound.createAsync({ uri: file.uri });
+            const { sound } = await Audio.Sound.createAsync({ uri: firstFile.uri });
             const status = await sound.getStatusAsync();
             if (status.isLoaded && status.durationMillis) {
               setDuration(status.durationMillis / 1000);
@@ -116,7 +125,7 @@ export default function AnalyzeScreen() {
   };
 
   const analyzeWithAI = async () => {
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       Alert.alert('Error', 'Please select an audio file first');
       return;
     }
@@ -136,7 +145,7 @@ export default function AnalyzeScreen() {
 
       const response = await axios.post(`${API_BASE}/analyze-ai`, {
         audio_features: audioFeatures,
-        filename: selectedFile.name,
+        filename: selectedFiles[0].name,
       });
 
       const result = response.data;
@@ -159,7 +168,7 @@ export default function AnalyzeScreen() {
 
   const simulateClientAnalysis = () => {
     // Simulate BPM detection based on file name patterns
-    const filename = selectedFile?.name?.toLowerCase() || '';
+    const filename = selectedFiles[0]?.name?.toLowerCase() || '';
     
     let detectedBpm = 120 + Math.floor(Math.random() * 20);
     let detectedEnergy = 5 + Math.floor(Math.random() * 3);
@@ -188,41 +197,152 @@ export default function AnalyzeScreen() {
     );
   };
 
+  const getClientAnalysisForFile = (filename: string) => {
+    const fname = filename.toLowerCase();
+    
+    let detectedBpm = 120 + Math.floor(Math.random() * 20);
+    let detectedEnergy = 5 + Math.floor(Math.random() * 3);
+    let detectedKey = 'C major';
+    
+    // Simple heuristics based on common genre keywords
+    if (fname.includes('house') || fname.includes('techno')) {
+      detectedBpm = 125 + Math.floor(Math.random() * 10);
+      detectedEnergy = 7;
+      detectedKey = ['F minor', 'G minor', 'A minor', 'B minor'][Math.floor(Math.random() * 4)];
+    } else if (fname.includes('drum') || fname.includes('dnb') || fname.includes('jungle')) {
+      detectedBpm = 170 + Math.floor(Math.random() * 10);
+      detectedEnergy = 9;
+      detectedKey = ['C minor', 'D minor', 'A minor'][Math.floor(Math.random() * 3)];
+    } else if (fname.includes('chill') || fname.includes('ambient') || fname.includes('lofi')) {
+      detectedBpm = 80 + Math.floor(Math.random() * 20);
+      detectedEnergy = 3;
+      detectedKey = ['C major', 'G major', 'A major', 'F major'][Math.floor(Math.random() * 4)];
+    } else if (fname.includes('hip') || fname.includes('rap') || fname.includes('trap')) {
+      detectedBpm = 85 + Math.floor(Math.random() * 15);
+      detectedEnergy = 6;
+      detectedKey = ['A minor', 'C major', 'G major'][Math.floor(Math.random() * 3)];
+    } else if (fname.includes('rock') || fname.includes('indie')) {
+      detectedBpm = 110 + Math.floor(Math.random() * 20);
+      detectedEnergy = 7;
+      detectedKey = ['C major', 'G major', 'D major', 'A major'][Math.floor(Math.random() * 4)];
+    } else if (fname.includes('pop')) {
+      detectedBpm = 100 + Math.floor(Math.random() * 20);
+      detectedEnergy = 6;
+      detectedKey = ['C major', 'F major', 'G major', 'A major'][Math.floor(Math.random() * 4)];
+    } else if (fname.includes('edm') || fname.includes('electronic')) {
+      detectedBpm = 128 + Math.floor(Math.random() * 10);
+      detectedEnergy = 8;
+      detectedKey = ['F minor', 'G minor', 'A minor', 'C minor'][Math.floor(Math.random() * 4)];
+    }
+    
+    return {
+      bpm: detectedBpm,
+      energy: Math.min(10, detectedEnergy),
+      key: detectedKey,
+      duration: 200 + Math.floor(Math.random() * 200) // Random duration
+    };
+  };
+
+  const performBatchClientAnalysis = async () => {
+    if (selectedFiles.length <= 1) return;
+
+    setAnalyzing(true);
+    try {
+      const results: {[filename: string]: any} = {};
+      
+      for (const file of selectedFiles) {
+        const analysis = getClientAnalysisForFile(file.name);
+        results[file.name] = analysis;
+      }
+      
+      setBatchAnalysisResults(results);
+      
+      // Set the first file's results as the displayed values for reference
+      if (selectedFiles.length > 0) {
+        const firstFile = selectedFiles[0];
+        const firstAnalysis = results[firstFile.name];
+        setKey(firstAnalysis.key);
+        setBpm(firstAnalysis.bpm.toString());
+        setEnergy(firstAnalysis.energy.toString());
+      }
+      
+      Alert.alert(
+        'Batch Analysis Complete',
+        `Analyzed ${selectedFiles.length} files automatically using client-side heuristics.`
+      );
+    } catch (error) {
+      console.error('Batch analysis error:', error);
+      Alert.alert('Error', 'Batch analysis failed');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const saveTrack = async () => {
-    if (!title.trim()) {
+    if (selectedFiles.length === 0) {
+      Alert.alert('Error', 'Please select audio files');
+      return;
+    }
+
+    // For single file, require title
+    if (selectedFiles.length === 1 && !title.trim()) {
       Alert.alert('Error', 'Please enter a track title');
       return;
     }
 
     setSaving(true);
     try {
-      await axios.post(`${API_BASE}/tracks`, {
-        filename: selectedFile?.name || title,
-        title: title.trim(),
-        artist: artist.trim(),
-        album: album.trim(),
-        key: key,
-        bpm: parseFloat(bpm) || 120,
-        energy: parseInt(energy) || 5,
-        duration: duration,
-        playlist_id: playlistId,
-        analysis_method: analysisMethod,
-      });
+      for (const file of selectedFiles) {
+        const filename = file.name;
+        const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+        
+        // Use individual analysis results for batch processing, or global form values for single file
+        let trackData;
+        if (selectedFiles.length > 1 && analysisMethod === 'client' && batchAnalysisResults[filename]) {
+          const analysis = batchAnalysisResults[filename];
+          trackData = {
+            filename: filename,
+            title: nameWithoutExt, // Use filename as title for batch
+            artist: artist.trim() || '', // Optional for batch
+            album: album.trim() || '', // Optional for batch
+            key: analysis.key,
+            bpm: analysis.bpm,
+            energy: analysis.energy,
+            duration: analysis.duration,
+            playlist_id: playlistId,
+            analysis_method: analysisMethod,
+          };
+        } else {
+          // Single file or manual entry
+          trackData = {
+            filename: filename,
+            title: selectedFiles.length === 1 ? title.trim() : nameWithoutExt,
+            artist: artist.trim(),
+            album: album.trim(),
+            key: key,
+            bpm: parseFloat(bpm) || 120,
+            energy: parseInt(energy) || 5,
+            duration: duration,
+            playlist_id: playlistId,
+            analysis_method: analysisMethod,
+          };
+        }
+        
+        await axios.post(`${API_BASE}/tracks`, trackData);
+      }
 
-      Alert.alert('Success', 'Track added to library!', [
-        { text: 'Add Another', onPress: resetForm },
-        { text: 'View Library', onPress: () => router.replace('/') },
-      ]);
+      Alert.alert('Success', `${selectedFiles.length} track${selectedFiles.length > 1 ? 's' : ''} added to library!`);
+      router.replace('/');
     } catch (error) {
-      console.error('Error saving track:', error);
-      Alert.alert('Error', 'Failed to save track');
+      console.error('Error saving tracks:', error);
+      Alert.alert('Error', 'Failed to save tracks');
     } finally {
       setSaving(false);
     }
   };
 
   const resetForm = () => {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setTitle('');
     setArtist('');
     setAlbum('');
@@ -232,6 +352,7 @@ export default function AnalyzeScreen() {
     setDuration(0);
     setPlaylistId(null);
     setAiConfidence(null);
+    setBatchAnalysisResults({});
   };
 
   return (
@@ -248,10 +369,12 @@ export default function AnalyzeScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* File Selection */}
         <TouchableOpacity style={styles.fileSelector} onPress={pickFile}>
-          {selectedFile ? (
+          {selectedFiles.length > 0 ? (
             <>
               <Ionicons name="musical-note" size={40} color="#A855F7" />
-              <Text style={styles.fileName} numberOfLines={2}>{selectedFile.name}</Text>
+              <Text style={styles.fileName} numberOfLines={2}>
+                {selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} files selected`}
+              </Text>
               <Text style={styles.fileSize}>
                 {duration > 0 ? `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}` : 'Tap to change'}
               </Text>
@@ -259,8 +382,8 @@ export default function AnalyzeScreen() {
           ) : (
             <>
               <Ionicons name="cloud-upload-outline" size={48} color="#6B7280" />
-              <Text style={styles.fileSelectorText}>Tap to select audio file</Text>
-              <Text style={styles.fileSelectorHint}>MP3, WAV, FLAC supported</Text>
+              <Text style={styles.fileSelectorText}>Tap to select audio files</Text>
+              <Text style={styles.fileSelectorHint}>Select one or multiple files</Text>
             </>
           )}
         </TouchableOpacity>
@@ -279,21 +402,39 @@ export default function AnalyzeScreen() {
             style={[styles.methodButton, analysisMethod === 'client' && styles.methodButtonActive]}
             onPress={() => {
               setAnalysisMethod('client');
-              if (selectedFile) simulateClientAnalysis();
+              if (selectedFiles.length > 1) {
+                performBatchClientAnalysis();
+              } else if (selectedFiles.length === 1) {
+                simulateClientAnalysis();
+              }
             }}
           >
             <Ionicons name="phone-portrait-outline" size={24} color={analysisMethod === 'client' ? '#A855F7' : '#6B7280'} />
-            <Text style={[styles.methodText, analysisMethod === 'client' && styles.methodTextActive]}>Client</Text>
+            <Text style={[styles.methodText, analysisMethod === 'client' && styles.methodTextActive]}>
+              {selectedFiles.length > 1 ? 'Auto Batch' : 'Client'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.methodButton, analysisMethod === 'ai' && styles.methodButtonActive]}
+            style={[
+              styles.methodButton, 
+              analysisMethod === 'ai' && styles.methodButtonActive,
+              selectedFiles.length > 1 && styles.methodButtonDisabled
+            ]}
             onPress={() => {
               setAnalysisMethod('ai');
-              if (selectedFile) analyzeWithAI();
+              if (selectedFiles.length === 1) analyzeWithAI();
             }}
+            disabled={selectedFiles.length > 1}
           >
-            <Ionicons name="sparkles" size={24} color={analysisMethod === 'ai' ? '#A855F7' : '#6B7280'} />
-            <Text style={[styles.methodText, analysisMethod === 'ai' && styles.methodTextActive]}>AI</Text>
+            <Ionicons name="sparkles" size={24} color={
+              selectedFiles.length > 1 ? '#374151' :
+              analysisMethod === 'ai' ? '#A855F7' : '#6B7280'
+            } />
+            <Text style={[
+              styles.methodText, 
+              analysisMethod === 'ai' && styles.methodTextActive,
+              selectedFiles.length > 1 && styles.methodTextDisabled
+            ]}>AI</Text>
           </TouchableOpacity>
         </View>
 
@@ -314,36 +455,61 @@ export default function AnalyzeScreen() {
         )}
 
         {/* Track Info */}
-        <Text style={styles.sectionTitle}>Track Information</Text>
-        
-        <Text style={styles.inputLabel}>Title *</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Track title"
-          placeholderTextColor="#6B7280"
-          value={title}
-          onChangeText={setTitle}
-        />
+        {selectedFiles.length === 1 && (
+          <>
+            <Text style={styles.sectionTitle}>Track Information</Text>
+            
+            <Text style={styles.inputLabel}>Title *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Track title"
+              placeholderTextColor="#6B7280"
+              value={title}
+              onChangeText={setTitle}
+            />
 
-        <Text style={styles.inputLabel}>Artist</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Artist name"
-          placeholderTextColor="#6B7280"
-          value={artist}
-          onChangeText={setArtist}
-        />
+            <Text style={styles.inputLabel}>Artist</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Artist name"
+              placeholderTextColor="#6B7280"
+              value={artist}
+              onChangeText={setArtist}
+            />
 
-        <Text style={styles.inputLabel}>Album</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Album name"
-          placeholderTextColor="#6B7280"
-          value={album}
-          onChangeText={setAlbum}
-        />
+            <Text style={styles.inputLabel}>Album</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Album name"
+              placeholderTextColor="#6B7280"
+              value={album}
+              onChangeText={setAlbum}
+            />
+          </>
+        )}
 
-        {/* Key Selection */}
+        {selectedFiles.length > 1 && analysisMethod === 'client' && Object.keys(batchAnalysisResults).length > 0 && (
+          <View style={styles.batchInfo}>
+            <Text style={styles.sectionTitle}>Batch Analysis Results</Text>
+            <Text style={styles.batchInfoText}>
+              {selectedFiles.length} files analyzed automatically. Each track will be saved with its individual analysis results.
+            </Text>
+            <Text style={styles.batchInfoText}>
+              Sample: {selectedFiles[0]?.name} → {batchAnalysisResults[selectedFiles[0]?.name]?.key}, {batchAnalysisResults[selectedFiles[0]?.name]?.bpm} BPM
+            </Text>
+          </View>
+        )}
+
+        {selectedFiles.length > 1 && analysisMethod !== 'client' && (
+          <View style={styles.batchInfo}>
+            <Text style={styles.sectionTitle}>Batch Processing</Text>
+            <Text style={styles.batchInfoText}>
+              {selectedFiles.length} files selected. All tracks will use the same metadata below.
+            </Text>
+          </View>
+        )}
+
+        {/* Key Selection - Show for all cases */}
         <Text style={styles.sectionTitle}>Musical Key</Text>
         <View style={styles.keyFormatContainer}>
           <TouchableOpacity
@@ -762,5 +928,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  batchInfo: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  batchInfoText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

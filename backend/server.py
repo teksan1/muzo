@@ -1,7 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from dotenv import load_dotenv
 import os
 import logging
 from pathlib import Path
@@ -10,6 +10,7 @@ from typing import List, Optional
 import uuid
 from datetime import datetime
 import base64
+from contextlib import asynccontextmanager
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -558,6 +559,22 @@ async def get_library_stats():
         "energy_distribution": energy_dist
     }
 
+# Lifespan handler for database connection management
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    yield
+    # Shutdown
+    client.close()
+
+# Create the main FastAPI app
+app = FastAPI(
+    title="Muzo DJ Music App API",
+    description="API for track analysis, playlist management, and DJ set creation",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -575,7 +592,3 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

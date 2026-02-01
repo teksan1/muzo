@@ -76,7 +76,9 @@ export default function LibraryScreen() {
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | null>(null);
   const [newPlaylistModal, setNewPlaylistModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
-  const [newPlaylistEmoji, setNewPlaylistEmoji] = useState('\uD83C\uDFB5');
+  const [newPlaylistEmoji, setNewPlaylistEmoji] = useState('🎵');
+  const [autoDJModal, setAutoDJModal] = useState(false);
+  const [selectedSourcePlaylist, setSelectedSourcePlaylist] = useState<string | null>(null);
 
   const fetchTracks = useCallback(async () => {
     try {
@@ -108,8 +110,13 @@ export default function LibraryScreen() {
 
   const loadData = async () => {
     setLoading(true);
-    await Promise.all([fetchTracks(), fetchPlaylists()]);
-    setLoading(false);
+    try {
+      await Promise.all([fetchTracks(), fetchPlaylists()]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -150,10 +157,137 @@ export default function LibraryScreen() {
       setNewPlaylistModal(false);
       setNewPlaylistName('');
       fetchPlaylists();
+      setActiveTab('library');
     } catch (error) {
       console.error('Error creating playlist:', error);
       Alert.alert('Error', 'Failed to create playlist');
     }
+  };
+
+  const createAutoDJSet = async () => {
+    if (!selectedSourcePlaylist) {
+      Alert.alert('Error', 'Please select a source playlist');
+      return;
+    }
+
+    try {
+      // Fetch tracks from selected playlist
+      const response = await axios.get(`${API_BASE}/tracks`, {
+        params: { playlist_id: selectedSourcePlaylist }
+      });
+      const playlistTracks = response.data;
+
+      if (playlistTracks.length < 3) {
+        Alert.alert('Error', 'Selected playlist needs at least 3 tracks to create a DJ set');
+        return;
+      }
+
+      // Create new playlist for the DJ set
+      const playlistResponse = await axios.post(`${API_BASE}/playlists`, {
+        name: `Auto DJ Set - ${new Date().toLocaleDateString()}`,
+        emoji: '🎧',
+      });
+      const newPlaylist = playlistResponse.data;
+
+      // Select tracks for the set
+      const selectedTracks = selectTracksForDJSet(playlistTracks);
+
+      // Assign tracks to new playlist
+      for (const track of selectedTracks) {
+        await axios.put(`${API_BASE}/tracks/${track.id}`, {
+          playlist_id: newPlaylist.id,
+        });
+      }
+
+      setAutoDJModal(false);
+      setSelectedSourcePlaylist(null);
+      fetchPlaylists();
+      fetchTracks();
+      setActiveTab('playlists');
+      Alert.alert('Success', `Created DJ set with ${selectedTracks.length} tracks!`);
+    } catch (error) {
+      console.error('Error creating auto DJ set:', error);
+      Alert.alert('Error', 'Failed to create auto DJ set');
+    }
+  };
+
+  const selectTracksForDJSet = (tracks: Track[]) => {
+    // Group tracks by Camelot key
+    const keyGroups: { [key: string]: Track[] } = {};
+    tracks.forEach(track => {
+      const key = track.camelot_key;
+      if (!keyGroups[key]) keyGroups[key] = [];
+      keyGroups[key].push(track);
+    });
+
+    // Find the largest key group
+    let mainKey = '';
+    let maxTracks = 0;
+    Object.keys(keyGroups).forEach(key => {
+      if (keyGroups[key].length > maxTracks) {
+        maxTracks = keyGroups[key].length;
+        mainKey = key;
+      }
+    });
+
+    if (!mainKey) return [];
+
+    // Get tracks from main key and compatible keys
+    const compatibleKeys = getCompatibleKeys(mainKey);
+    let setTracks: Track[] = [];
+    compatibleKeys.forEach(key => {
+      if (keyGroups[key]) {
+        setTracks.push(...keyGroups[key]);
+      }
+    });
+
+    // Group by BPM ranges (within 10 BPM of each other)
+    const bpmGroups: { [range: string]: Track[] } = {};
+    setTracks.forEach(track => {
+      const bpmRange = Math.floor(track.bpm / 10) * 10;
+      const rangeKey = `${bpmRange}-${bpmRange + 9}`;
+      if (!bpmGroups[rangeKey]) bpmGroups[rangeKey] = [];
+      bpmGroups[rangeKey].push(track);
+    });
+
+    // Find the largest BPM group
+    let mainBPMRange = '';
+    maxTracks = 0;
+    Object.keys(bpmGroups).forEach(range => {
+      if (bpmGroups[range].length > maxTracks) {
+        maxTracks = bpmGroups[range].length;
+        mainBPMRange = range;
+      }
+    });
+
+    if (mainBPMRange) {
+      setTracks = bpmGroups[mainBPMRange];
+    }
+
+    // Sort by energy ascending for build-up, then by BPM for consistency
+    setTracks.sort((a, b) => {
+      if (a.energy !== b.energy) return a.energy - b.energy;
+      return a.bpm - b.bpm;
+    });
+
+    // Limit to 20 tracks max
+    return setTracks.slice(0, 20);
+  };
+
+  const getCompatibleKeys = (camelot: string) => {
+    // Simple compatibility: same key and adjacent numbers
+    const num = parseInt(camelot.replace(/\D/g, ''));
+    const letter = camelot.replace(/\d/g, '');
+    const compatible = [camelot];
+
+    // Add adjacent numbers same letter
+    compatible.push(`${num - 1}${letter}`, `${num + 1}${letter}`);
+
+    // Add same number opposite letter (relative major/minor)
+    const oppositeLetter = letter === 'A' ? 'B' : 'A';
+    compatible.push(`${num}${oppositeLetter}`);
+
+    return compatible;
   };
 
   const deletePlaylist = async (id: string) => {
@@ -439,6 +573,13 @@ export default function LibraryScreen() {
             <Ionicons name="add-circle" size={24} color="#A855F7" />
             <Text style={styles.createPlaylistText}>Create New Playlist</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.createPlaylistButton}
+            onPress={() => setAutoDJModal(true)}
+          >
+            <Ionicons name="sparkles" size={24} color="#A855F7" />
+            <Text style={styles.createPlaylistText}>Create Auto DJ Set</Text>
+          </TouchableOpacity>
           {playlists.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="folder-open-outline" size={64} color="#374151" />
@@ -574,6 +715,56 @@ export default function LibraryScreen() {
 
             <TouchableOpacity style={styles.createButton} onPress={createPlaylist}>
               <Text style={styles.createButtonText}>Create Playlist</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Auto DJ Set Modal */}
+      <Modal
+        visible={autoDJModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setAutoDJModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create Auto DJ Set</Text>
+              <TouchableOpacity onPress={() => setAutoDJModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.filterLabel}>Select Source Playlist</Text>
+            <ScrollView style={styles.playlistSelector}>
+              {playlists.map((playlist) => (
+                <TouchableOpacity
+                  key={playlist.id}
+                  style={[
+                    styles.playlistOption,
+                    selectedSourcePlaylist === playlist.id && styles.playlistOptionSelected,
+                  ]}
+                  onPress={() => setSelectedSourcePlaylist(playlist.id)}
+                >
+                  <Text style={styles.playlistEmoji}>{playlist.emoji}</Text>
+                  <View style={styles.playlistInfo}>
+                    <Text style={styles.playlistName}>{playlist.name}</Text>
+                    <Text style={styles.playlistCount}>{playlist.track_count} tracks</Text>
+                  </View>
+                  {selectedSourcePlaylist === playlist.id && (
+                    <Ionicons name="checkmark" size={20} color="#A855F7" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity 
+              style={[styles.createButton, !selectedSourcePlaylist && styles.createButtonDisabled]} 
+              onPress={createAutoDJSet}
+              disabled={!selectedSourcePlaylist}
+            >
+              <Text style={styles.createButtonText}>Create DJ Set</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -932,6 +1123,41 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 24,
+  },
+  playlistSelector: {
+    maxHeight: 200,
+    marginTop: 8,
+  },
+  playlistOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#374151',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  playlistOptionSelected: {
+    backgroundColor: '#A855F7',
+  },
+  playlistEmoji: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  playlistInfo: {
+    flex: 1,
+  },
+  playlistName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  playlistCount: {
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  createButtonDisabled: {
+    backgroundColor: '#374151',
+    opacity: 0.5,
   },
   modalButtons: {
     flexDirection: 'row',
